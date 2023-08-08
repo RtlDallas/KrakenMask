@@ -27,16 +27,16 @@ typedef struct _PRM  {
 	void* rbx;                  
 } PRM, * PPRM;
 
-extern PVOID			SpoofStub										(PVOID, PVOID, PVOID, PVOID, PPRM, PVOID, PVOID, PVOID, PVOID);
+extern PVOID			SpoofStub						(PVOID, PVOID, PVOID, PVOID, PPRM, PVOID, PVOID, PVOID, PVOID);
 
-typedef NTSTATUS		(NTAPI* fnNtAlertResumeThread)					(HANDLE ThreadHandle, PULONG SuspendCount);
+typedef NTSTATUS		(NTAPI* fnNtAlertResumeThread)				(HANDLE ThreadHandle, PULONG SuspendCount);
 typedef NTSTATUS		(NTAPI* fnNtSignalAndWaitForSingleObject)		(HANDLE ObjectToSignal, HANDLE WaitableObject, BOOLEAN Altertable, PLARGE_INTEGER Time);
 
 PBYTE FindGadget		(PVOID base, DWORD size, const BYTE* pattern, DWORD patternSize);
 PVOID Spoofer			(PVOID pFunction, PVOID pArg1, PVOID pArg2, PVOID pArg3, PVOID pArg4, PVOID pArg5, PVOID pArg6, PVOID pArg7, PVOID pArg8);
 VOID GenerateKey		(BYTE* key, DWORD keySize);
-DWORD HashStringDjb2A	(LPCSTR String);
-BOOL TakeSectionInfo	(PSECTION_INFO SecInfo);
+DWORD HashStringDjb2A		(LPCSTR String);
+BOOL TakeSectionInfo		(PSECTION_INFO SecInfo);
 PVOID GetNtdllAddr		();
 
 #define SPOOF_0(func) Spoofer(func, 0, 0, 0, 0, 0, 0, 0, 0)
