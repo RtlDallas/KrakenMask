@@ -32,6 +32,15 @@
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠉⠉⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 
 
+# Edit v1.1
+
+- Change ROP with NtContinue by JOP, now Rip is addr of "JMP RAX" gadget and rax register contains the address of targeted function
+- All API function address is dynamicly solved
+- Patch bug of stack align for > 5 arguments in ret addr spoofing function
+- RtlCopyMemory was removed for homemade memcpy function
+- Add ret addr spoof for Nt api call (NtAlertResumeThread) and not direct call
+
+
 # How it's work
 
 A sleep obfuscation tool is used to encrypt the content of the .text section with RC4 (using SystemFunction032). To achieve this encryption, a ROP chain is employed with QueueUserAPC and NtContinue.
