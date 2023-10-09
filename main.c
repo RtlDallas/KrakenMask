@@ -10,9 +10,8 @@ https://github.com/Cracked5pider/Ekko
 https://institute.sektor7.net/rto-maldev-adv1
 */
 
-
 VOID main() {
-	printf("[!] Kraken Mask by @DallasFR\n");
+	printf("[!] KrakenMask v1.1 by @DallasFR\n");
 
 	while (1) {
 		printf("Zzzz Zzzzz Zzzz....\n");
