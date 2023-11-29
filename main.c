@@ -15,6 +15,7 @@ VOID main() {
 
 	while (1) {
 		printf("Zzzz Zzzzz Zzzz....\n");
+		printf(" Smell"s good\n);
 		KrakenSleep(4000);
 	}
 
